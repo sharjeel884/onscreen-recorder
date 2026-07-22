@@ -462,6 +462,17 @@
   animation: onscreen-recorder-pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
+.onscreen-recorder-recording-time {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 3.5rem;
+  font-weight: 800;
+  color: #ffffff;
+  margin: 0.75rem 0 1.25rem 0;
+  letter-spacing: -0.02em;
+  text-shadow: 0 0 30px rgba(255, 255, 255, 0.15);
+  line-height: 1;
+}
+
 .onscreen-recorder-recording-text {
   color: #fff;
   font-size: 1.25rem;
@@ -682,4 +693,95 @@
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+/* Permission Warning Banner */
+.onscreen-recorder-permission-warning {
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  border-radius: 0.75rem;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  box-shadow: 0 4px 20px rgba(239, 68, 68, 0.1), inset 0 0 15px rgba(239, 68, 68, 0.05);
+}
+
+.onscreen-recorder-warning-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.onscreen-recorder-warning-icon {
+  font-size: 1.25rem;
+  filter: drop-shadow(0 0 8px rgba(239, 68, 68, 0.4));
+}
+
+.onscreen-recorder-warning-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #fca5a5;
+  margin: 0;
+}
+
+.onscreen-recorder-warning-text {
+  font-size: 0.9rem;
+  color: var(--osr-text-main);
+  margin: 0;
+  line-height: 1.4;
+  opacity: 0.9;
+}
+
+.onscreen-recorder-warning-steps {
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 0.5rem;
+  padding: 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.onscreen-recorder-steps-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--osr-text-muted);
+  margin: 0 0 0.5rem 0;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.onscreen-recorder-steps-list {
+  margin: 0;
+  padding-left: 1.25rem;
+  font-size: 0.875rem;
+  color: var(--osr-text-main);
+  line-height: 1.6;
+}
+
+.onscreen-recorder-steps-list li {
+  margin-bottom: 0.5rem;
+}
+
+.onscreen-recorder-steps-list li:last-child {
+  margin-bottom: 0;
+}
+
+.onscreen-recorder-os-tip {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 0.8rem;
+  color: #fde047;
+  line-height: 1.4;
+  opacity: 0.95;
+}
+
+.onscreen-recorder-warning-actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.25rem;
+}
+
+.onscreen-recorder-warning-actions .onscreen-recorder-button {
+  padding: 0.625rem 1.25rem;
+  font-size: 0.875rem;
 }

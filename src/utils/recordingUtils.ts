@@ -148,7 +148,7 @@ export const combineAudioStreams = (
       micAudioSource.connect(destination);
 
       return new MediaStream([...videoTracks, ...destination.stream.getAudioTracks()]);
-    } catch (audioErr) {
+    } catch {
       // Fallback to microphone only if mixing fails
       return new MediaStream([...videoTracks, ...micAudioTracks]);
     }
