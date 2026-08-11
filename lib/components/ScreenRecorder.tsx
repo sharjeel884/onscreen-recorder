@@ -134,8 +134,8 @@ const ScreenRecorderComponent: React.FC<ScreenRecorderProps> = ({
   const [isRecording, setIsRecording] = useState(false);
   const [screenPermissionDeclined, setScreenPermissionDeclined] = useState(false);
   const [micPermissionDeclined, setMicPermissionDeclined] = useState(false);
+  const [cameraPermissionDeclined, setCameraPermissionDeclined] = useState(false);
   const [recordedVideoURL, setRecordedVideoURL] = useState<string | null>(null);
-  const [recordedCameraURL, setRecordedCameraURL] = useState<string | null>(null);
   const [consoleLogs, setConsoleLogs] = useState<Array<{ message: string; type: LogType; timestamp: string }>>([]);
   const [micEnabled, setMicEnabled] = useState(defaultMicEnabled);
   const [cameraEnabled, setCameraEnabled] = useState(defaultCameraEnabled);
@@ -146,13 +146,9 @@ const ScreenRecorderComponent: React.FC<ScreenRecorderProps> = ({
   const [isPaused, setIsPaused] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const cameraRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
-  const cameraChunksRef = useRef<Blob[]>([]);
   const videoRef = useRef<HTMLVideoElement>(null);
-  const cameraVideoRef = useRef<HTMLVideoElement>(null);
   const recordedBlobRef = useRef<Blob | null>(null);
-  const recordedCameraBlobRef = useRef<Blob | null>(null);
   const micStreamRef = useRef<MediaStream | null>(null);
   const cameraStreamRef = useRef<MediaStream | null>(null);
   const screenStreamRef = useRef<MediaStream | null>(null);
@@ -201,8 +197,12 @@ const ScreenRecorderComponent: React.FC<ScreenRecorderProps> = ({
           if (error.name === "NotAllowedError" || error.message?.includes("Permission") || error.message?.includes("denied")) {
             setMicPermissionDeclined(true);
           }
+        } else {
+          setHasCameraPermission(false);
+          if (error.name === "NotAllowedError" || error.message?.includes("Permission") || error.message?.includes("denied")) {
+            setCameraPermissionDeclined(true);
+          }
         }
-        else setHasCameraPermission(false);
         if (onError) onError(error);
         return null;
       }
@@ -213,7 +213,6 @@ const ScreenRecorderComponent: React.FC<ScreenRecorderProps> = ({
   const requestCameraPermission = useCallback(() => requestMediaPermission("video"), [requestMediaPermission]);
 
   const releaseAllStreams = useCallback(() => {
-    if (cameraRecorderRef.current?.state === "recording") cameraRecorderRef.current.stop();
     if (drawLoopIdRef.current != null) {
       cancelAnimationFrame(drawLoopIdRef.current);
       drawLoopIdRef.current = null;
@@ -246,40 +245,75 @@ const ScreenRecorderComponent: React.FC<ScreenRecorderProps> = ({
   const compositeScreenWithCamera = useCallback(
     (screenStream: MediaStream, cameraStream: MediaStream): MediaStream => {
       const screenTrack = screenStream.getVideoTracks()[0];
-      const settings = screenTrack?.getSettings();
-      const w = settings?.width ?? 1920;
-      const h = settings?.height ?? 1080;
       const canvas = document.createElement("canvas");
-      canvas.width = w;
-      canvas.height = h;
       const ctx = canvas.getContext("2d");
+      
+      // Default dimensions before video metadata loads
+      canvas.width = 1920;
+      canvas.height = 1080;
+      
       if (!ctx) return screenStream;
+
       const screenVideo = document.createElement("video");
-      screenVideo.srcObject = new MediaStream([screenTrack]);
+      screenVideo.autoplay = true;
+      screenVideo.playsInline = true;
       screenVideo.muted = true;
+      screenVideo.srcObject = new MediaStream([screenTrack]);
       screenVideo.play().catch(() => { });
+
       const cameraVideo = document.createElement("video");
-      cameraVideo.srcObject = cameraStream;
+      cameraVideo.autoplay = true;
+      cameraVideo.playsInline = true;
       cameraVideo.muted = true;
+      cameraVideo.srcObject = cameraStream;
       cameraVideo.play().catch(() => { });
-      const camW = Math.floor(w * CAMERA_PIP_SIZE);
-      const camH = Math.floor(h * CAMERA_PIP_SIZE);
-      const camX = w - camW - CAMERA_PIP_INSET;
-      const camY = h - camH - CAMERA_PIP_INSET;
+
       const draw = () => {
         if (screenVideo.readyState >= 2) {
+          // Dynamically adjust canvas to match screen stream resolution
+          if (canvas.width !== screenVideo.videoWidth || canvas.height !== screenVideo.videoHeight) {
+            if (screenVideo.videoWidth > 0 && screenVideo.videoHeight > 0) {
+              canvas.width = screenVideo.videoWidth;
+              canvas.height = screenVideo.videoHeight;
+            }
+          }
+
+          const w = canvas.width;
+          const h = canvas.height;
           ctx.drawImage(screenVideo, 0, 0, w, h);
-          if (cameraVideo.readyState >= 2) {
+
+          if (cameraVideo.readyState >= 2 && cameraVideo.videoWidth > 0) {
             ctx.save();
-            const radius = Math.min(camW, camH) / 2;
-            const centerX = camX + camW / 2;
-            const centerY = camY + camH / 2;
+            const size = Math.floor(Math.min(w, h) * CAMERA_PIP_SIZE);
+            const camX = w - size - CAMERA_PIP_INSET;
+            const camY = h - size - CAMERA_PIP_INSET;
+            const radius = size / 2;
+            const centerX = camX + radius;
+            const centerY = camY + radius;
             
             ctx.beginPath();
             ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
             ctx.clip();
             
-            ctx.drawImage(cameraVideo, camX, camY, camW, camH);
+            // Calculate object-fit: cover dimensions
+            const vW = cameraVideo.videoWidth;
+            const vH = cameraVideo.videoHeight;
+            const vRatio = vW / vH;
+            
+            let drawW = size;
+            let drawH = size;
+            let drawX = camX;
+            let drawY = camY;
+
+            if (vRatio > 1) {
+              drawW = size * vRatio;
+              drawX = camX - (drawW - size) / 2;
+            } else {
+              drawH = size / vRatio;
+              drawY = camY - (drawH - size) / 2;
+            }
+            
+            ctx.drawImage(cameraVideo, drawX, drawY, drawW, drawH);
             ctx.restore();
             
             ctx.save();
@@ -291,8 +325,12 @@ const ScreenRecorderComponent: React.FC<ScreenRecorderProps> = ({
             ctx.restore();
           }
         }
+        
+        // requestAnimationFrame will pause if tab is inactive.
+        // Fallback to setTimeout if rAF gets throttled heavily, though rAF is smoother.
         drawLoopIdRef.current = requestAnimationFrame(draw);
       };
+      
       draw();
       const stream = canvas.captureStream(CAPTURE_FPS);
       canvasStreamRef.current = stream;
@@ -343,32 +381,8 @@ const ScreenRecorderComponent: React.FC<ScreenRecorderProps> = ({
       }
     };
 
-    const camStream = showCamera ? cameraStreamRef.current : null;
-    if (camStream && camStream.getVideoTracks().length > 0) {
-      cameraChunksRef.current = [];
-      const camMime = MIME_TYPES.camera;
-      addLog(`Using camera video mime type: ${camMime}`, "info");
-      cameraRecorderRef.current = new MediaRecorder(camStream, { mimeType: camMime });
-      cameraRecorderRef.current.ondataavailable = (e) => {
-        if (e.data.size > 0) cameraChunksRef.current.push(e.data);
-      };
-      cameraRecorderRef.current.onstop = () => {
-        const camBlob = new Blob(cameraChunksRef.current, { type: camMime });
-        recordedCameraBlobRef.current = camBlob;
-        setRecordedCameraURL(URL.createObjectURL(camBlob));
-        addLog(`Camera video ready: ${(camBlob.size / 1024).toFixed(1)} KB`, "success");
-      };
-      cameraRecorderRef.current.start(1000);
-    }
-
     mediaRecorderRef.current.onstop = () => {
       addLog("Recording stopped, processing video...", "info");
-      if (cameraRecorderRef.current && cameraRecorderRef.current.state !== "inactive") {
-        if (cameraRecorderRef.current.state === "paused") {
-          cameraRecorderRef.current.resume();
-        }
-        cameraRecorderRef.current.stop();
-      }
       const blob = new Blob(chunksRef.current, { type: mime });
       const url = URL.createObjectURL(blob);
       setRecordedVideoURL(url);
@@ -421,6 +435,7 @@ const ScreenRecorderComponent: React.FC<ScreenRecorderProps> = ({
     try {
       setScreenPermissionDeclined(false);
       setMicPermissionDeclined(false);
+      setCameraPermissionDeclined(false);
       if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
         const errMsg = "Screen recording is not supported on this browser or device (mobile browsers are not supported).";
         addLog(errMsg, "error");
@@ -440,10 +455,11 @@ const ScreenRecorderComponent: React.FC<ScreenRecorderProps> = ({
       addLog("Screen selected. Starting countdown...", "success");
 
       let videoStream: MediaStream = screenStream;
-      if (showCamera && cameraEnabled) {
+      if (showCamera) {
         let camStream = cameraStreamRef.current;
         if (!camStream) camStream = await requestCameraPermission();
         if (camStream) {
+          setCameraEnabled(true);
           videoStream = compositeScreenWithCamera(screenStream, camStream);
           addLog("Camera added as picture-in-picture", "success");
         }
@@ -541,9 +557,6 @@ const ScreenRecorderComponent: React.FC<ScreenRecorderProps> = ({
 
   const pauseRecording = useCallback(() => {
     if (mediaRecorderRef.current && isRecording && !isPaused) {
-      if (cameraRecorderRef.current?.state === "recording") {
-        cameraRecorderRef.current.pause();
-      }
       mediaRecorderRef.current.pause();
       setIsPaused(true);
       addLog("Recording paused", "info");
@@ -552,9 +565,6 @@ const ScreenRecorderComponent: React.FC<ScreenRecorderProps> = ({
 
   const resumeRecording = useCallback(() => {
     if (mediaRecorderRef.current && isRecording && isPaused) {
-      if (cameraRecorderRef.current?.state === "paused") {
-        cameraRecorderRef.current.resume();
-      }
       mediaRecorderRef.current.resume();
       setIsPaused(false);
       addLog("Recording resumed", "info");
@@ -563,12 +573,6 @@ const ScreenRecorderComponent: React.FC<ScreenRecorderProps> = ({
 
   const stopRecording = useCallback(() => {
     if (mediaRecorderRef.current && isRecording) {
-      if (cameraRecorderRef.current && cameraRecorderRef.current.state !== "inactive") {
-        if (cameraRecorderRef.current.state === "paused") {
-          cameraRecorderRef.current.resume();
-        }
-        cameraRecorderRef.current.stop();
-      }
       if (mediaRecorderRef.current.state !== "inactive") {
         if (mediaRecorderRef.current.state === "paused") {
           mediaRecorderRef.current.resume();
@@ -605,30 +609,14 @@ const ScreenRecorderComponent: React.FC<ScreenRecorderProps> = ({
     }
   }, [recordedVideoURL, onDownload, triggerDownload]);
 
-  const downloadCameraVideo = useCallback(() => {
-    if (recordedCameraURL && recordedCameraBlobRef.current) {
-      triggerDownload(
-        recordedCameraURL,
-        `camera-recording-${Date.now()}.webm`,
-        "Camera video download initiated",
-        null
-      );
-    }
-  }, [recordedCameraURL, triggerDownload]);
-
   const clearRecording = useCallback(() => {
     if (recordedVideoURL) {
       URL.revokeObjectURL(recordedVideoURL);
       setRecordedVideoURL(null);
       recordedBlobRef.current = null;
     }
-    if (recordedCameraURL) {
-      URL.revokeObjectURL(recordedCameraURL);
-      setRecordedCameraURL(null);
-      recordedCameraBlobRef.current = null;
-    }
     addLog("Recording cleared", "info");
-  }, [recordedVideoURL, recordedCameraURL, addLog]);
+  }, [recordedVideoURL, addLog]);
 
   const handleUpload = useCallback(() => {
     if (!recordedBlobRef.current) {
@@ -728,9 +716,8 @@ const ScreenRecorderComponent: React.FC<ScreenRecorderProps> = ({
   useEffect(() => {
     return () => {
       if (recordedVideoURL) URL.revokeObjectURL(recordedVideoURL);
-      if (recordedCameraURL) URL.revokeObjectURL(recordedCameraURL);
     };
-  }, [recordedVideoURL, recordedCameraURL]);
+  }, [recordedVideoURL]);
 
   return (
     <div
@@ -883,6 +870,59 @@ const ScreenRecorderComponent: React.FC<ScreenRecorderProps> = ({
                 </div>
               )}
 
+              {cameraPermissionDeclined && !isRecording && !isPreparing && (
+                <div className="onscreen-recorder-permission-warning onscreen-recorder-fade-in">
+                  <div className="onscreen-recorder-warning-header">
+                    <span className="onscreen-recorder-warning-icon">📷</span>
+                    <h3 className="onscreen-recorder-warning-title">Camera Access Blocked</h3>
+                  </div>
+                  <p className="onscreen-recorder-warning-text">
+                    Camera permission was declined. To include your camera, the browser needs permission.
+                  </p>
+                  <div className="onscreen-recorder-warning-steps">
+                    <h4 className="onscreen-recorder-steps-title">How to enable permission again:</h4>
+                    <ol className="onscreen-recorder-steps-list">
+                      <li>
+                        Click the <strong>lock icon</strong> (🔒) next to the URL in your browser's address bar.
+                      </li>
+                      <li>
+                        Find <strong>Camera</strong> and set it to <strong>Allow</strong>.
+                      </li>
+                      <li>
+                        Click <strong>Grant Permission</strong> below to re-request access.
+                      </li>
+                    </ol>
+                    <div className="onscreen-recorder-os-tip">
+                      <strong>macOS Users:</strong> If permissions are allowed in the browser but camera still fails, open <strong>System Settings &gt; Privacy &amp; Security &gt; Camera</strong> and ensure your browser is allowed.
+                    </div>
+                  </div>
+                  <div className="onscreen-recorder-warning-actions">
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const stream = await requestCameraPermission();
+                        if (stream) {
+                          setCameraPermissionDeclined(false);
+                          stream.getTracks().forEach((t) => t.stop());
+                          cameraStreamRef.current = null;
+                        }
+                      }}
+                      className="onscreen-recorder-button onscreen-recorder-button-primary"
+                    >
+                      <CameraIcon className="onscreen-recorder-button-icon" size={20} />
+                      Grant Permission
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCameraPermissionDeclined(false)}
+                      className="onscreen-recorder-button onscreen-recorder-button-secondary"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {!isRecording && !isPreparing && (
                 <div className="onscreen-recorder-toggles">
                   <button
@@ -948,8 +988,8 @@ const ScreenRecorderComponent: React.FC<ScreenRecorderProps> = ({
                 )}
               </div>
 
-              {/* Camera live preview (when enabled, not recording) */}
-              {showCamera && !isRecording && !isPreparing && cameraEnabled && hasCameraPermission && (
+              {/* Camera live preview */}
+              {showCamera && cameraEnabled && hasCameraPermission && !recordedVideoURL && (
                 <div className="onscreen-recorder-camera-preview onscreen-recorder-fade-in">
                   <p className="onscreen-recorder-camera-preview-label">Camera preview</p>
                   <video
@@ -973,12 +1013,7 @@ const ScreenRecorderComponent: React.FC<ScreenRecorderProps> = ({
                       <DownloadIcon className="onscreen-recorder-button-icon" size={16} />
                       Download screen
                     </button>
-                    {recordedCameraURL && (
-                      <button onClick={downloadCameraVideo} className="onscreen-recorder-button onscreen-recorder-button-success" type="button">
-                        <CameraIcon className="onscreen-recorder-button-icon" size={16} />
-                        Download camera
-                      </button>
-                    )}
+
                     {onUpload && (
                       <button onClick={handleUpload} className="onscreen-recorder-button onscreen-recorder-button-purple" type="button">
                         <UploadIcon className="onscreen-recorder-button-icon" size={16} />
@@ -993,13 +1028,7 @@ const ScreenRecorderComponent: React.FC<ScreenRecorderProps> = ({
                 </div>
               )}
 
-              {/* Camera-only recorded video */}
-              {recordedCameraURL && (
-                <div className="onscreen-recorder-video-section onscreen-recorder-camera-section">
-                  <h3 className="onscreen-recorder-video-title">Camera recording</h3>
-                  <video ref={cameraVideoRef} src={recordedCameraURL} controls className="onscreen-recorder-video" />
-                </div>
-              )}
+
 
               {!recordedVideoURL && !isRecording && !isPreparing && (
                 <div className="onscreen-recorder-empty-state">
