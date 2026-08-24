@@ -425,7 +425,6 @@ const ScreenRecorderComponent: React.FC<ScreenRecorderProps> = ({
   }, [
     addLog,
     releaseAllStreams,
-    showCamera,
     onRecordingStop,
     onError,
     onRecordingStart,
@@ -527,7 +526,6 @@ const ScreenRecorderComponent: React.FC<ScreenRecorderProps> = ({
     }
   }, [
     addLog,
-    cameraEnabled,
     countdownSeconds,
     micEnabled,
     onError,
@@ -995,6 +993,7 @@ const ScreenRecorderComponent: React.FC<ScreenRecorderProps> = ({
                   <video
                     ref={cameraPreviewRef}
                     className="onscreen-recorder-camera-preview-video"
+                    autoPlay
                     muted
                     playsInline
                     aria-label="Camera preview"
